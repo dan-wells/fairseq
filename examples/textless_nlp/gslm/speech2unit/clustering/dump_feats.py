@@ -7,13 +7,13 @@ import argparse
 import logging
 
 from examples.textless_nlp.gslm.speech2unit.pretrained.utils import (
-    get_and_dump_features,
+    get_and_dump_features, get_and_dump_features_per_utt,
 )
 
 
 def get_parser():
     parser = argparse.ArgumentParser(
-        description="Compute and dump log mel fbank features."
+        description="Compute and dump acoustic features."
     )
     parser.add_argument(
         "--feature_type",
@@ -52,9 +52,10 @@ def get_parser():
         default=0.1,
     )
     parser.add_argument(
-        "--out_features_path",
-        type=str,
-        help="Path to save log mel fbank features",
+        "--flatten",
+        action="store_true",
+        help="Flatten dumped features"
+    )
     )
     return parser
 
