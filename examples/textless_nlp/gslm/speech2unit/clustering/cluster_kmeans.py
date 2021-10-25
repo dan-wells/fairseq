@@ -4,6 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+import glob
 import logging
 import os
 import time
@@ -12,9 +13,13 @@ import numpy as np
 from sklearn.cluster import MiniBatchKMeans
 
 import joblib
+from examples.textless_nlp.gslm.speech2unit.clustering.utils import (
+    load_features,
+)
 from examples.textless_nlp.gslm.speech2unit.pretrained.utils import (
     get_and_dump_features,
     get_features,
+    read_manifest,
 )
 
 
@@ -32,7 +37,15 @@ def get_parser():
 
     # Features arguments
     parser.add_argument(
-        "--in_features_path", type=str, default=None, help="Features file path"
+        "--in_features_path",
+        type=str,
+        default=None,
+        help="Features file path",
+    )
+    parser.add_argument(
+        "--per_utt",
+        action="store_true",
+        help="Input features are stored one file per utterance",
     )
     parser.add_argument(
         "--feature_type",
@@ -149,7 +162,12 @@ def main(args, logger):
     if args.in_features_path:
         # Feature loading
         logger.info(f"Loading features from {args.in_features_path}...")
-        features_batch = np.load(args.in_features_path, allow_pickle=True)
+        features_batch = load_features(
+            args.in_features_path,
+            flatten=True,
+            per_utt=args.per_utt,
+            manifest_path=args.manifest_path,
+        )
     else:
         # Feature extraction
         logger.info(f"Extracting {args.feature_type} acoustic features...")

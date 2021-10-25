@@ -11,7 +11,7 @@ import numpy as np
 
 import joblib
 from examples.textless_nlp.gslm.speech2unit.clustering.utils import (
-    get_audio_files,
+    get_audio_files, load_features,
 )
 from examples.textless_nlp.gslm.speech2unit.pretrained.utils import (
     get_features,
@@ -61,6 +61,11 @@ def get_parser():
         help="Features file path. You don't need to enter acoustic model details if you have dumped features",
     )
     parser.add_argument(
+        "--per_utt",
+        action="store_true",
+        help="Input features are stored one file per utterance",
+    )
+    parser.add_argument(
         "--manifest_path",
         type=str,
         default=None,
@@ -82,7 +87,12 @@ def main(args, logger):
     # Feature extraction
     if args.features_path is not None:
         logger.info(f"Loading acoustic features from {args.features_path}...")
-        features_batch = np.load(args.features_path)
+        features_batch = load_features(
+            args.features_path,
+            flatten=False,
+            per_utt=args.per_utt,
+            manifest_path=args.manifest_path
+        )
     else:
         logger.info(f"Extracting {args.feature_type} acoustic features...")
         features_batch = get_features(

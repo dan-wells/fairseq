@@ -41,36 +41,29 @@ def get_feature_reader(feature_type):
 def get_feature_iterator(
     feature_type, checkpoint_path, layer, manifest_path, sample_pct
 ):
-    feature_reader_cls = get_feature_reader(feature_type)
-    with open(manifest_path, "r") as fp:
-        lines = fp.read().split("\n")
-        root = lines.pop(0).strip()
-        file_path_list = [
-            os.path.join(root, line.split("\t")[0])
-            for line in lines
-            if len(line) > 0
-        ]
-        if sample_pct < 1.0:
-            file_path_list = random.sample(
-                file_path_list, int(sample_pct * len(file_path_list))
-            )
-        num_files = len(file_path_list)
-        reader = feature_reader_cls(
-            checkpoint_path=checkpoint_path, layer=layer
+    file_path_list = read_manifest(manifest_path)
+    if sample_pct < 1.0:
+        file_path_list = random.sample(
+            file_path_list, int(sample_pct * len(file_path_list))
         )
 
-        def iterate():
-            for file_path in file_path_list:
-                feats = reader.get_feats(file_path)
-                yield feats.cpu().numpy()
+    feature_reader_cls = get_feature_reader(feature_type)
+    reader = feature_reader_cls(
+        checkpoint_path=checkpoint_path, layer=layer
+    )
 
-    return iterate, num_files
+    def iterate():
+        for file_path in file_path_list:
+            feats = reader.get_feats(file_path)
+            yield feats.cpu().numpy()
+
+    return iterate, file_path_list
 
 
 def get_features(
     feature_type, checkpoint_path, layer, manifest_path, sample_pct, flatten
 ):
-    generator, num_files = get_feature_iterator(
+    generator, file_path_list = get_feature_iterator(
         feature_type=feature_type,
         checkpoint_path=checkpoint_path,
         layer=layer,
@@ -80,7 +73,7 @@ def get_features(
     iterator = generator()
 
     features_list = []
-    for features in tqdm.tqdm(iterator, total=num_files):
+    for features in tqdm.tqdm(iterator, total=len(file_path_list)):
         features_list.append(features)
 
     # Explicit clean up
@@ -89,6 +82,7 @@ def get_features(
     gc.collect()
     torch.cuda.empty_cache()
 
+    features_list = np.asarray(features_list)
     if flatten:
         return np.concatenate(features_list)
 
@@ -124,3 +118,46 @@ def get_and_dump_features(
     np.save(out_features_path, features_batch)
 
     return features_batch
+
+
+def get_and_dump_features_per_utt(
+    feature_type,
+    checkpoint_path,
+    layer,
+    manifest_path,
+    sample_pct,
+    out_features_path,
+):
+    os.makedirs(out_features_path, exist_ok=True)
+    shutil.copyfile(
+        manifest_path,
+        os.path.join(out_features_path, os.path.basename(manifest_path)),
+    )
+
+    generator, file_path_list = get_feature_iterator(
+        feature_type=feature_type,
+        checkpoint_path=checkpoint_path,
+        layer=layer,
+        manifest_path=manifest_path,
+        sample_pct=sample_pct,
+    )
+    iterator = generator()
+
+    for file_path, features in tqdm.tqdm(zip(file_path_list, iterator), total=len(file_path_list)):
+        features = np.asarray(features)
+        file_path = os.path.basename(file_path)
+        out_features_file = os.path.splitext(file_path)[0] + '.npy'
+        out_features_file = os.path.join(out_features_path, out_features_file)
+        np.save(out_features_file, features)
+
+
+def read_manifest(manifest_path):
+    with open(manifest_path, "r") as fp:
+        lines = fp.read().split("\n")
+        root = lines.pop(0).strip()
+        file_path_list = [
+            os.path.join(root, line.split("\t")[0])
+            for line in lines
+            if len(line) > 0
+        ]
+    return file_path_list

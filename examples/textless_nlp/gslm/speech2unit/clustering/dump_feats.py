@@ -80,13 +80,23 @@ if __name__ == "__main__":
     logger.info(args)
 
     logger.info(f"Extracting {args.feature_type} acoustic features...")
-    get_and_dump_features(
-        feature_type=args.feature_type,
-        checkpoint_path=args.checkpoint_path,
-        layer=args.layer,
-        manifest_path=args.manifest_path,
-        sample_pct=args.sample_pct,
-        flatten=True,
-        out_features_path=args.out_features_path,
-    )
+    if args.per_utt:
+        get_and_dump_features_per_utt(
+            feature_type=args.feature_type,
+            checkpoint_path=args.checkpoint_path,
+            layer=args.layer,
+            manifest_path=args.manifest_path,
+            sample_pct=args.sample_pct,
+            out_features_path=args.out_features_path,
+        )
+    else:
+        get_and_dump_features(
+            feature_type=args.feature_type,
+            checkpoint_path=args.checkpoint_path,
+            layer=args.layer,
+            manifest_path=args.manifest_path,
+            sample_pct=args.sample_pct,
+            flatten=args.flatten,
+            out_features_path=args.out_features_path,
+        )
     logger.info(f"Saved extracted features at {args.out_features_path}")
