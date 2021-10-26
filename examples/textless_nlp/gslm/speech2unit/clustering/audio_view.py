@@ -9,20 +9,6 @@ import numpy as np
 import tgt
 
 
-def run_length_encode(symbols):
-    '''Encode a sequence of repeating symbols as (symbol, run length) pairs.'''
-    run_lengths = []
-    dur = 1
-    for u0, u1 in zip(symbols, symbols[1:]):
-        if u1 == u0:
-            dur += 1
-        else:
-            run_lengths.append((u0, dur))
-            dur = 1
-    run_lengths.append((u1, dur))
-    return run_lengths
-
-
 #def plot_audio(wav, sr=16000, n_fft=1024, hop_length=256, win_length=1024, n_mels=80):
 #def plot_audio(wav, sr=16000, n_fft=2048, hop_length=512, win_length=2048, n_mels=128,
 def plot_audio(wav, sr=16000, n_fft=512, hop_length=128, win_length=512, n_mels=128,
