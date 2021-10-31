@@ -56,6 +56,10 @@ def get_parser():
         action="store_true",
         help="Flatten dumped features"
     )
+    parser.add_argument(
+        "--per_utt",
+        action="store_true",
+        help="Save extracted features one file per utterance"
     )
     return parser
 
