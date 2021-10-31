@@ -49,7 +49,7 @@ def get_parser():
         "--sample_pct",
         type=float,
         help="Percent data to use for K-means training",
-        default=0.1,
+        default=1.0,
     )
     parser.add_argument(
         "--flatten",
