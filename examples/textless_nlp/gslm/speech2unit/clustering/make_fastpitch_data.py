@@ -78,8 +78,6 @@ def dump_durs_and_write_meta(quantized_utts, data_dir, meta_out, durations_dir,
             rle_seq = run_length_encode(unit_seq)
             units, durs = zip(*rle_seq)  # unpack list of tuples to two sequences
 
-            # TODO: Need to be able to convert durations from HuBERT 50 Hz
-            # to arbitrary framerates
             durs = torch.LongTensor(durs)
             dur_relative_path = os.path.join(durations_dir, utt_id + ".pt")
             dur_full_path = os.path.join(data_dir, dur_relative_path)
