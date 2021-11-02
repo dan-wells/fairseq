@@ -11,7 +11,7 @@ import numpy as np
 
 import joblib
 from examples.textless_nlp.gslm.speech2unit.clustering.utils import (
-    get_audio_files, load_features,
+    get_audio_files, load_features, load_features_batched
 )
 from examples.textless_nlp.gslm.speech2unit.pretrained.utils import (
     get_features,
@@ -66,6 +66,12 @@ def get_parser():
         help="Input features are stored one file per utterance",
     )
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=0,
+        help="Load per-utterance features in batches"
+    )
+    parser.add_argument(
         "--manifest_path",
         type=str,
         default=None,
@@ -87,12 +93,19 @@ def main(args, logger):
     # Feature extraction
     if args.features_path is not None:
         logger.info(f"Loading acoustic features from {args.features_path}...")
-        features_batch = load_features(
-            args.features_path,
-            flatten=False,
-            per_utt=args.per_utt,
-            manifest_path=args.manifest_path
-        )
+        if args.batch_size:
+            features_batch = load_features_batched(
+                args.features_path,
+                args.batch_size,
+                manifest_path=args.manifest_path
+            )
+        else:
+            features_batch = load_features(
+                args.features_path,
+                flatten=False,
+                per_utt=args.per_utt,
+                manifest_path=args.manifest_path
+            )
     else:
         logger.info(f"Extracting {args.feature_type} acoustic features...")
         features_batch = get_features(
@@ -120,11 +133,21 @@ def main(args, logger):
     os.makedirs(os.path.dirname(args.out_quantized_file_path), exist_ok=True)
     print(f"Writing quantized predictions to {args.out_quantized_file_path}")
     with open(args.out_quantized_file_path, "w") as fout:
-        for i, feats in enumerate(features_batch):
-            pred = kmeans_model.predict(feats)
-            pred_str = " ".join(str(p) for p in pred)
-            base_fname = os.path.basename(fnames[i]).rstrip(args.extension)
-            fout.write(f"{base_fname}|{pred_str}\n")
+        if args.batch_size:
+            i = 0
+            for batch in features_batch:
+                for feats in batch:
+                    pred = kmeans_model.predict(feats)
+                    pred_str = " ".join(str(p) for p in pred)
+                    base_fname = os.path.basename(fnames[i]).rstrip(args.extension)
+                    fout.write(f"{base_fname}|{pred_str}\n")
+                    i += 1
+        else:
+            for i, feats in enumerate(features_batch):
+                pred = kmeans_model.predict(feats)
+                pred_str = " ".join(str(p) for p in pred)
+                base_fname = os.path.basename(fnames[i]).rstrip(args.extension)
+                fout.write(f"{base_fname}|{pred_str}\n")
 
 
 if __name__ == "__main__":

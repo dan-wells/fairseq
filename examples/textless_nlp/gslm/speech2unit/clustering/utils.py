@@ -52,3 +52,21 @@ def load_features(in_features_path, flatten=False, per_utt=False, manifest_path=
     else:
         features_batch = np.load(in_features_path, allow_pickle=True)
     return features_batch
+
+
+def load_features_batched(in_features_path, batch_size, manifest_path=None):
+    if manifest_path is not None:
+        wav_files = read_manifest(manifest_path)
+        features_files = []
+        for wav in wav_files:
+            wav = os.path.basename(wav)
+            features_file = os.path.splitext(wav)[0] + ".npy"
+            features_file = os.path.join(in_features_path, features_file)
+            features_files.append(features_file)
+    else:
+        features_files = glob.glob(os.path.join(in_features_path, "*.npy"))
+    n_feats = len(features_files)
+    for start in range(0, n_feats, batch_size):
+        end = min(start + batch_size, n_feats)
+        yield [np.load(f) for f in features_files[start:end]]
+
