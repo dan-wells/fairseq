@@ -1,11 +1,18 @@
 #!/usr/bin/env python
 
 import os
+import random
 from collections import Counter, defaultdict
 from itertools import zip_longest
 
+import joblib
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import tgt
+import umap
+import umap.plot
+from scipy.spatial import Voronoi, voronoi_plot_2d
 from tabulate import tabulate
 from tqdm import tqdm
 
@@ -16,7 +23,7 @@ from examples.hubert.measure_teacher_quality import (
 class QuantizedUtterances():
     def __init__(self, quantized_utts_file, wavs_dir=None, textgrids_dir=None,
                  sr=16000, n_fft=512, win_length=512, hop_length=320,
-                 n_mels=80, verbose=False):
+                 n_mels=80, kmeans_model=None, verbose=False):
         self.quantized_utts = self.load_quantized_utts(quantized_utts_file)
         self.wavs_dir = wavs_dir
         self.textgrids_dir = textgrids_dir
@@ -30,6 +37,11 @@ class QuantizedUtterances():
         if self.textgrids_dir is not None:
             self.phone_alignments = self.textgrids_to_durs("phones")
         self.word_alignments = None
+
+        if kmeans_model is not None:
+            with open(kmeans_model, "rb") as kmeans_model_file:
+                self.kmeans = joblib.load(kmeans_model_file)
+                #self.kmeans.cluster_centers_.shape (n_clusters, dim)
 
     def load_quantized_utts(self, filename):
         """Load quantized utterance metadata file.
@@ -515,3 +527,47 @@ class QuantizedUtterances():
             print(row_template.format("Unit", p_xy.shape[0]))
             print(row_template.format("Phone", p_xy.shape[1]))
 
+    def plot_kmeans(self, umap_dims=2, utt_pct=0.01):
+        frame_samples = []
+        phone_samples = []
+        unit_samples = []
+        random.seed(1337)
+        utt_sample = random.sample(self.phone_alignments.keys(), int(utt_pct * len(self.phone_alignments)))
+        for utt in utt_sample:
+            feats = np.load("/home/s1462938/tools/fairseq/examples/textless_nlp/gslm/speech2unit/clustering/northandsouth_hubert/feats/{}.npy".format(utt))
+            np.random.seed(1337)
+            sample_idx = np.random.randint(feats.shape[0], size=int(utt_pct * feats.shape[0]))
+            frame_sample = feats[sample_idx, :]
+            phone_sample = np.asarray(self.run_length_decode(self.phone_alignments[utt]))[sample_idx]
+            unit_sample = np.asarray(self.run_length_decode(self.quantized_utts[utt]))[sample_idx]
+            frame_samples.extend(frame_sample)
+            phone_samples.extend(phone_sample)
+            unit_samples.extend(unit_sample)
+
+        centroids = self.kmeans.cluster_centers_
+        #frame_samples.extend(centroids)
+        reducer = umap.UMAP(n_components=umap_dims, random_state=1337, transform_seed=1337, verbose=True)
+        embedding = reducer.fit_transform(frame_samples)  # n_clusters x umap_dims
+        centroid_embeddings = reducer.transform(centroids)
+        frame_embeddings = reducer.embedding_
+
+        fig, ax = plt.subplots()
+        cmap = matplotlib.cm.get_cmap('rainbow')#, self.kmeans.n_clusters)
+        # TODO: alpha as phone purity * distance from centroid, normalised
+        # between [0,1] over all points in that cluster
+        # np.linalg.norm(centroids[unit_samples[i]] - frame_samples[i])
+        phone_purity = self.label_purity('unit')
+        purity_alpha = {}
+        for unit, phones in phone_purity.items():
+            purity_alpha[unit] = {}
+            for phone, alpha in phones:
+                purity_alpha[unit][phone] = alpha
+
+        for i, (phone, xy) in enumerate(zip(phone_samples, frame_embeddings)):
+            ax.annotate(phone, xy,
+                        color=cmap(unit_samples[i]/self.kmeans.n_clusters, alpha=purity_alpha[unit_samples[i]][phone]), 
+                        ha='center', va='center', zorder=0)
+        for i in range(self.kmeans.n_clusters):
+            ax.scatter(*centroid_embeddings[i], color=cmap(i/self.kmeans.n_clusters), edgecolors='k', zorder=2)
+            ax.annotate(i, centroid_embeddings[i], color='k', zorder=1)
+        plt.show()
