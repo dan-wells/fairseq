@@ -90,13 +90,14 @@ class QuantizedUtterances():
             tokens.extend([token] * run_length)
         return tokens
 
-    def textgrids_to_durs(self, tier_label="phones", durs_in_frames=True):
+    def textgrids_to_durs(self, tier_label="phones", durs_in_frames=True, trigram=False):
         """Extract token-duration alignments from utterance TextGrid files
 
         Args:
           tier_label: Name of TextGrid interval tier to read, typically 'phones'
             (default) or 'words'
           durs_in_frames: Boolean to return durations in frames or seconds
+          trigram: Boolean to show trigram context in token labels
 
         Returns:
           Dictionary mapping utterance IDs to sequences of (token, duration)
@@ -104,12 +105,12 @@ class QuantizedUtterances():
         """
         tg_alignments = {}
         for utt in tqdm(self.quantized_utts, "Loading TextGrids"):
-            tokens, durations, _, _ = self.load_textgrid(utt, tier_label, durs_in_frames)
+            tokens, durations, _, _ = self.load_textgrid(utt, tier_label, durs_in_frames, trigram)
             if tokens is not None:
                 tg_alignments[utt] = list(zip(tokens, durations))
         return tg_alignments
 
-    def load_textgrid(self, utt_id, tier_label="phones", durs_in_frames=True):
+    def load_textgrid(self, utt_id, tier_label="phones", durs_in_frames=True, trigram=False):
         """Load and parse selected tier from TextGrid file given an utterance ID.
 
         Args:
@@ -118,6 +119,7 @@ class QuantizedUtterances():
           tier_label: Name of TextGrid interval tier to read, typically 'phones'
             (default) or 'words'
           durs_in_frames: Boolean to return durations in frames or seconds
+          trigram: Boolean to show trigram context in token labels
 
         Returns:
           tokens: List of tokens in transcription tier
@@ -133,7 +135,7 @@ class QuantizedUtterances():
             tier = textgrid.get_tier_by_name(tier_label)
             assert isinstance(tier, tgt.core.IntervalTier)
             tokens, durations, start_time, end_time = \
-                self.parse_textgrid_tier(tier, durs_in_frames)
+                self.parse_textgrid_tier(tier, durs_in_frames, trigram)
         except FileNotFoundError:
             if self.verbose:
                 print("No TextGrid found for utterance {}, "
@@ -148,12 +150,13 @@ class QuantizedUtterances():
                       "tier, omitting from analysis.".format(tier_label, tgf))
         return tokens, durations, start_time, end_time
 
-    def parse_textgrid_tier(self, tier, durs_in_frames=True):
+    def parse_textgrid_tier(self, tier, durs_in_frames=True, trigram=False):
         """Parse a single TextGrid interval tier to extract tokens and durations.
 
         Args:
           tier: tgt.core.IntervalTier with transcription in chosen units
           durs_in_frames: Boolean to return durations in frames or seconds
+          trigram: Boolean to show trigram context in token labels
 
         Returns:
           tokens: List of tokens in transcription tier
@@ -162,7 +165,6 @@ class QuantizedUtterances():
           end_time: Ending time index of transcription tier, total duration of
             transcribed utterance
         """
-        sil_tokens = ["sil", "sp", "spn", ""]
         start_time = tier[0].start_time
         end_time = tier[-1].end_time
         tokens = []
@@ -171,15 +173,23 @@ class QuantizedUtterances():
             start = interval.start_time
             end = interval.end_time
             token = interval.text
-            if token not in sil_tokens:
-                tokens.append(token)
-            else:
+            # catch empty string silences from MFA
+            if not token:
                 if (i == 0) or (i == len(tier) - 1):
                     # leading or trailing silence
-                    tokens.append("sil")
+                    token = "sil"
+                    interval.text = "sil"
                 else:
                     # short pause between words
-                    tokens.append("sp")
+                    token = "sp"
+                    interval.text = "sp"
+            if trigram:
+                prev_token = "bos" if i == 0 else tier.intervals[i - 1].text
+                next_token = "eos" if i == len(tier) - 1 else tier.intervals[i + 1].text
+                if not next_token:  # following silence
+                    next_token = "sil" if i == len(tier) - 2 else "sp"
+                token = "_".join([prev_token, token, next_token])
+            tokens.append(token)
             if durs_in_frames:
                 fps = self.sr / self.hop_length
                 durations.append(int(np.ceil(end * fps) - np.ceil(start * fps)))
