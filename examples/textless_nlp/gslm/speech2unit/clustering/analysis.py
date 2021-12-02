@@ -23,10 +23,11 @@ from examples.hubert.measure_teacher_quality import (
 class QuantizedUtterances():
     def __init__(self, quantized_utts_file, wavs_dir=None, textgrids_dir=None,
                  sr=16000, n_fft=512, win_length=512, hop_length=320,
-                 n_mels=80, kmeans_model=None, verbose=False):
+                 n_mels=80, kmeans_model=None, feats_dir=None, verbose=False):
         self.quantized_utts = self.load_quantized_utts(quantized_utts_file)
         self.wavs_dir = wavs_dir
         self.textgrids_dir = textgrids_dir
+        self.feats_dir = feats_dir
         self.sr = sr
         self.n_fft = n_fft
         self.win_length = win_length
@@ -527,47 +528,101 @@ class QuantizedUtterances():
             print(row_template.format("Unit", p_xy.shape[0]))
             print(row_template.format("Phone", p_xy.shape[1]))
 
-    def plot_kmeans(self, umap_dims=2, utt_pct=0.01):
+    def plot_embeddings(self, n_components=2, n_neighbors=15, min_dist=0.1, metric='euclidean',
+                        utt_pct=0.05, frame_pct=0.05, plot_pct=0.1, seed=1337,
+                        norm_alpha=False, output=None):
+        """Plot UMAP embeddings of HuBERT centroids and frames with phone labels.
+
+        Fits and applies a UMAP transform over a random sample of frames from
+        loaded utterances. Each frame is plotted with its corresponding phone
+        label, colored by quantized cluster ID with opacity determined by the
+        conditional probability p(phone|cluster). Embedded cluster centroids
+        are also shown, with matching colors.
+
+        Args:
+          n_components: Number of dimensions for UMAP embedding.
+          n_neighbors: Number of local points considered in UMAP embedding.
+          min_dist: Minimum distance between points in UMAP embedding.
+          metric: Distance metric to use for UMAP embedding.
+          utt_pct: Proportion of utterances to sample and fit UMAP embedding.
+          frame_pct: Proportion of frames from each utterance to sample and
+            fit UMAP embedding.
+          plot_pct: Proportion of embedded frames to show in plot.
+          seed: Random seed for utterance/frame sampling and UMAP random state.
+          norm_alpha: Normalize alpha values to [0,1] per cluster (possibly useful
+            for very low purity clusters, e.g. with triphone labels).
+          output: Filename to save plot, or open interactive viewer if None.
+        """
+        np.random.seed(seed)
+        random.seed(seed)
+        utt_sample = random.sample(self.phone_alignments.keys(),
+                                   int(utt_pct * len(self.phone_alignments)))
         frame_samples = []
         phone_samples = []
         unit_samples = []
-        random.seed(1337)
-        utt_sample = random.sample(self.phone_alignments.keys(), int(utt_pct * len(self.phone_alignments)))
-        for utt in utt_sample:
-            feats = np.load("/home/s1462938/tools/fairseq/examples/textless_nlp/gslm/speech2unit/clustering/northandsouth_hubert/feats/{}.npy".format(utt))
-            np.random.seed(1337)
-            sample_idx = np.random.randint(feats.shape[0], size=int(utt_pct * feats.shape[0]))
-            frame_sample = feats[sample_idx, :]
-            phone_sample = np.asarray(self.run_length_decode(self.phone_alignments[utt]))[sample_idx]
-            unit_sample = np.asarray(self.run_length_decode(self.quantized_utts[utt]))[sample_idx]
-            frame_samples.extend(frame_sample)
-            phone_samples.extend(phone_sample)
-            unit_samples.extend(unit_sample)
+        feat_template = os.path.join(self.feats_dir, "{}.npy")
+        for utt in tqdm(utt_sample, "Sampling audio frames"):
+            feats = np.load(feat_template.format(utt))
+            # random subset of frames per utterance
+            sample_idx = np.random.randint(feats.shape[0],
+                                           size=int(frame_pct * feats.shape[0]))
+            frame_samples.extend(feats[sample_idx, :])
+            phone_samples.extend(
+                np.asarray(self.run_length_decode(self.phone_alignments[utt]))[sample_idx])
+            unit_samples.extend(
+                np.asarray(self.run_length_decode(self.quantized_utts[utt]))[sample_idx])
 
+        # fit UMAP transform and apply to individual frames and centroids
+        print("Fitting UMAP transform over {} frames from {} utterances...".format(
+            len(frame_samples), len(utt_sample)))
         centroids = self.kmeans.cluster_centers_
-        #frame_samples.extend(centroids)
-        reducer = umap.UMAP(n_components=umap_dims, random_state=1337, transform_seed=1337, verbose=True)
+        #frame_samples.extend(centroids)  # probably don't do this, because they are not actual data points!
+        reducer = umap.UMAP(n_components=n_components, n_neighbors=n_neighbors,
+                            min_dist=min_dist, metric=metric, random_state=seed,
+                            transform_seed=seed, verbose=self.verbose)
         embedding = reducer.fit_transform(frame_samples)  # n_clusters x umap_dims
-        centroid_embeddings = reducer.transform(centroids)
         frame_embeddings = reducer.embedding_
+        centroid_embeddings = reducer.transform(centroids)
 
-        fig, ax = plt.subplots()
-        cmap = matplotlib.cm.get_cmap('rainbow')#, self.kmeans.n_clusters)
-        # TODO: alpha as phone purity * distance from centroid, normalised
-        # between [0,1] over all points in that cluster
-        # np.linalg.norm(centroids[unit_samples[i]] - frame_samples[i])
+        # phone label opacity determined by conditional prob per cluster ID
         phone_purity = self.label_purity('unit')
         purity_alpha = {}
         for unit, phones in phone_purity.items():
+            if norm_alpha:
+                _, probs = list(zip(*phones))
+                max_prob = max(probs)
+                min_prob = min(probs)
             purity_alpha[unit] = {}
             for phone, alpha in phones:
+                if norm_alpha:
+                    alpha = (alpha - min_prob) / (max_prob - min_prob)
                 purity_alpha[unit][phone] = alpha
 
-        for i, (phone, xy) in enumerate(zip(phone_samples, frame_embeddings)):
-            ax.annotate(phone, xy,
-                        color=cmap(unit_samples[i]/self.kmeans.n_clusters, alpha=purity_alpha[unit_samples[i]][phone]), 
-                        ha='center', va='center', zorder=0)
-        for i in range(self.kmeans.n_clusters):
-            ax.scatter(*centroid_embeddings[i], color=cmap(i/self.kmeans.n_clusters), edgecolors='k', zorder=2)
-            ax.annotate(i, centroid_embeddings[i], color='k', zorder=1)
-        plt.show()
+        fig, ax = plt.subplots()
+        cmap = matplotlib.cm.get_cmap('rainbow')#, self.kmeans.n_clusters)
+        # plot frame embeddings as phone labels colored by cluster ID
+        plot_idx = np.random.randint(len(frame_embeddings),
+                                     size=int(plot_pct * len(frame_embeddings)))
+        frame_embeddings = np.asarray(frame_embeddings)[plot_idx]
+        phone_samples = np.asarray(phone_samples)[plot_idx]
+        unit_samples = np.asarray(unit_samples)[plot_idx]
+        for i, (phone, xy) in tqdm(enumerate(zip(phone_samples, frame_embeddings)),
+                                   "Plotting audio frames", total=len(plot_idx)):
+            unit = unit_samples[i]
+            ax.annotate(phone, xy, ha='center', va='center', zorder=0,
+                        color=cmap(unit / self.kmeans.n_clusters,
+                                   alpha=purity_alpha[unit][phone]))
+        # plot cluster centroids with matching colors
+        for i, centroid in tqdm(enumerate(centroid_embeddings),
+                                "Plotting centroids", total=self.kmeans.n_clusters):
+            ax.scatter(*centroid, edgecolors='k', zorder=2,
+                       color=cmap(i / self.kmeans.n_clusters))
+            ax.annotate(i, centroid, color='k', zorder=1)
+
+        if output is None:
+            plt.show()
+        else:
+            print("Saving figure...")
+            plt.savefig(output)
+        plt.close()
+
