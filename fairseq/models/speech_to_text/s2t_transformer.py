@@ -2,11 +2,13 @@
 
 import logging
 import math
-from typing import Dict, List, Optional, Tuple
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from torch import Tensor
+
 from fairseq import checkpoint_utils, utils
 from fairseq.data.data_utils import lengths_to_padding_mask
 from fairseq.models import (
@@ -15,6 +17,7 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
+from fairseq.models.speech_to_text.hub_interface import S2THubInterface
 from fairseq.models.transformer import Embedding, TransformerDecoder
 from fairseq.modules import (
     FairseqDropout,
@@ -22,8 +25,6 @@ from fairseq.modules import (
     PositionalEmbedding,
     TransformerEncoderLayer,
 )
-from torch import Tensor
-
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,37 @@ class S2TTransformerModel(FairseqEncoderDecoderModel):
     A trainable input subsampler is prepended to the Transformer encoder to
     project inputs into the encoder dimension as well as downsample input
     sequence for computational efficiency."""
+
+    @classmethod
+    def hub_models(cls):
+        base_url = "http://dl.fbaipublicfiles.com/fairseq/s2t"
+        model_ids = [
+            "s2t_transformer_s-en-asr-librispeech",
+            "s2t_transformer_m-en-asr-librispeech",
+            "s2t_transformer_l-en-asr-librispeech",
+        ]
+        return {i: f"{base_url}/{i}.tar.gz" for i in model_ids}
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_name_or_path,
+        checkpoint_file="model.pt",
+        data_name_or_path=".",
+        config_yaml="config.yaml",
+        **kwargs,
+    ):
+        from fairseq import hub_utils
+
+        x = hub_utils.from_pretrained(
+            model_name_or_path,
+            checkpoint_file,
+            data_name_or_path,
+            archive_map=cls.hub_models(),
+            config_yaml=config_yaml,
+            **kwargs,
+        )
+        return S2THubInterface(x["args"], x["task"], x["models"][0])
 
     def __init__(self, encoder, decoder):
         super().__init__(encoder, decoder)

@@ -8,22 +8,22 @@ import logging
 import torch
 from torch import nn
 
+from fairseq import utils
+from fairseq.data.data_utils import lengths_to_padding_mask
 from fairseq.models import (
     FairseqEncoder,
     FairseqEncoderModel,
     register_model,
     register_model_architecture,
 )
-from fairseq.modules import (
-    LayerNorm,
-    PositionalEmbedding,
-    FairseqDropout,
-    MultiheadAttention,
-)
-from fairseq import utils
-from fairseq.data.data_utils import lengths_to_padding_mask
+from fairseq.models.text_to_speech.hub_interface import TTSHubInterface
 from fairseq.models.text_to_speech.tacotron2 import Postnet
-
+from fairseq.modules import (
+    FairseqDropout,
+    LayerNorm,
+    MultiheadAttention,
+    PositionalEmbedding,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +292,7 @@ class FastSpeech2Encoder(FairseqEncoder):
         durations=None,
         pitches=None,
         energies=None,
-        **kwargs
+        **kwargs,
     ):
         x = self.embed_tokens(src_tokens)
 
@@ -331,6 +331,40 @@ class FastSpeech2Model(FairseqEncoderModel):
     """
 
     NON_AUTOREGRESSIVE = True
+
+    @classmethod
+    def hub_models(cls):
+        base_url = "http://dl.fbaipublicfiles.com/fairseq/s2"
+        model_ids = [
+            "fastspeech2-en-ljspeech",
+            "fastspeech2-en-200_speaker-cv4",
+        ]
+        return {i: f"{base_url}/{i}.tar.gz" for i in model_ids}
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_name_or_path,
+        checkpoint_file="model.pt",
+        data_name_or_path=".",
+        config_yaml="config.yaml",
+        vocoder: str = "griffin_lim",
+        fp16: bool = False,
+        **kwargs,
+    ):
+        from fairseq import hub_utils
+
+        x = hub_utils.from_pretrained(
+            model_name_or_path,
+            checkpoint_file,
+            data_name_or_path,
+            archive_map=cls.hub_models(),
+            config_yaml=config_yaml,
+            vocoder=vocoder,
+            fp16=fp16,
+            **kwargs,
+        )
+        return TTSHubInterface(x["args"], x["task"], x["models"][0])
 
     @staticmethod
     def add_args(parser):

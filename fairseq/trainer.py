@@ -25,6 +25,7 @@ from fairseq.logging import meters, metrics
 from fairseq.models.ema import build_ema
 from fairseq.nan_detector import NanDetector
 from fairseq.optim import lr_scheduler
+from fairseq.utils import safe_hasattr
 from omegaconf import OmegaConf
 
 logger = logging.getLogger(__name__)
@@ -501,6 +502,46 @@ class Trainer(object):
 
             # load model parameters
             try:
+                # this is the code related to AdaPrune
+                # In short, it removes redundant heads in multi-head attention module based on heads importance provided
+                # For more info, please refer to the paper: https://openreview.net/forum?id=_CMSV7FTzGI
+                # The idea of prune in mha can be summarized as
+                # Fine tune model (e.g. roberta encoder) on a certain datasets with regularization
+                # After the model is trained. User could use get_reserve_head_index and _adaptive_prune_heads functions to get the top X heads with most importance.
+                # Then user uses the rank to prune a new roberta encoder and save the pruned ckpt manually.
+                # User will fine tune the the new roberta encoder via the ckpt saved above
+                # To get rid of registering different pruned version of Roberta, I use the argument --mha-heads-to-keep to prune the Roberta model into a pruned version which matches the pruned ckpt.
+                if (
+                    safe_hasattr(self.model, "args")
+                    and safe_hasattr(self.model.args, "mha_heads_to_keep")
+                    and self.model.args.mha_heads_to_keep != -1
+                ):
+                    logger.info(f"Prune model: keep {self.model.args.mha_heads_to_keep} heads for each multihead attention module")
+                    for layer in self.model.encoder.sentence_encoder.layers:
+                        reserve_head_index = layer.self_attn._get_reserve_head_index(num_heads_to_keep=self.model.args.mha_heads_to_keep)
+                        layer.self_attn._adaptive_prune_heads(reserve_head_index=reserve_head_index)
+                        layer.self_attn._set_skip_embed_dim_check()
+                    logger.info(self.model)
+                # this is the code related to AdaPrune
+                # In short, it removes redundant units in feedforward layer in each transformer layer based on importance
+                # For more info, please refer to the paper: https://openreview.net/forum?id=_CMSV7FTzGI
+                # The idea of prune in ffn can be summarized as
+                # Fine tune model (e.g. roberta encoder) on a certain datasets with regularization
+                # After the model is trained. User could use _get_fc_rank and _prune_fc_layer functions to get the top X units with most importance.
+                # Then user uses the rank to prune a new roberta encoder and save the pruned ckpt manually.
+                # User will fine tune the the new roberta encoder via the ckpt saved above
+                # To get rid of registering different pruned version of Roberta, I use the argument --ffn-blocks-to-remove to prune the Roberta model into a pruned version which matches the pruned ckpt.
+                if (
+                    safe_hasattr(self.model, "args")
+                    and safe_hasattr(self.model.args, "ffn_blocks_to_remove")
+                    and self.model.args.ffn_blocks_to_remove != -1
+                ):
+                    logger.info(f"Prune model: remove {self.model.args.ffn_blocks_to_remove} ffn blocks for each transformer layer")
+                    for layer in self.model.encoder.sentence_encoder.layers:
+                        remove_index = layer._get_fc_rank(remove_num=self.model.args.ffn_blocks_to_remove)
+                        layer._prune_fc_layer(remove_index=remove_index)
+                    logger.info(self.model)
+
                 self.model.load_state_dict(
                     state["model"], strict=True, model_cfg=self.cfg.model
                 )

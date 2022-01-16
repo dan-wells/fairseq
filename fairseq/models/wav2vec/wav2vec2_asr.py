@@ -3,23 +3,23 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from argparse import Namespace
 import contextlib
 import copy
 import math
-import numpy as np
 import re
+from argparse import Namespace
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from dataclasses import dataclass, field
-from omegaconf import MISSING, II, open_dict
-from typing import Any, Optional
+from omegaconf import II, MISSING, open_dict
 
 from fairseq import checkpoint_utils, tasks, utils
 from fairseq.dataclass import FairseqDataclass
 from fairseq.dataclass.utils import convert_namespace_to_omegaconf
-from fairseq.tasks import FairseqTask
 from fairseq.models import (
     BaseFairseqModel,
     FairseqEncoder,
@@ -28,11 +28,8 @@ from fairseq.models import (
     register_model,
 )
 from fairseq.models.wav2vec.wav2vec2 import MASKING_DISTRIBUTION_CHOICES
-from fairseq.modules import (
-    LayerNorm,
-    PositionalEmbedding,
-    TransformerDecoderLayer,
-)
+from fairseq.modules import LayerNorm, PositionalEmbedding, TransformerDecoderLayer
+from fairseq.tasks import FairseqTask
 
 
 @dataclass
@@ -150,6 +147,23 @@ class Wav2Vec2AsrConfig(FairseqDataclass):
     data: str = II("task.data")
     # this holds the loaded wav2vec args
     w2v_args: Any = None
+    checkpoint_activations: bool = field(
+        default=False, metadata={"help": "checkpoint_activations"}
+    )
+    offload_activations: bool = field(
+        default=False, metadata={"help": "offload_activations"}
+    )
+    min_params_to_wrap: int = field(
+        default=int(1e8),
+        metadata={
+            "help": "minimum number of params for a layer to be wrapped with FSDP() when "
+            "training with --ddp-backend=fully_sharded. Smaller values will "
+            "improve memory efficiency, but may make torch.distributed "
+            "communication less efficient due to smaller input sizes. This option "
+            "is set to 0 (i.e., always wrap) when --checkpoint-activations or "
+            "--offload-activations are passed."
+        },
+    )
 
     checkpoint_activations: bool = field(
         default=False,
@@ -195,8 +209,10 @@ class Wav2VecCtc(BaseFairseqModel):
 
         if net_output["padding_mask"] is not None and net_output["padding_mask"].any():
             number_of_classes = logits.size(-1)
-            masking_tensor = torch.ones(number_of_classes) * float("-inf")
-            masking_tensor[0] = float("inf")
+            masking_tensor = torch.ones(
+                number_of_classes, device=logits.device
+            ) * float("-inf")
+            masking_tensor[0] = 0
             logits[net_output["padding_mask"].T] = masking_tensor.type_as(logits)
 
         if normalize:
@@ -339,6 +355,9 @@ class Wav2VecEncoder(FairseqEncoder):
             "no_mask_channel_overlap": cfg.no_mask_channel_overlap,
             "encoder_layerdrop": cfg.layerdrop,
             "feature_grad_mult": cfg.feature_grad_mult,
+            "checkpoint_activations": cfg.checkpoint_activations,
+            "offload_activations": cfg.offload_activations,
+            "min_params_to_wrap": cfg.min_params_to_wrap,
         }
 
         if cfg.w2v_args is None:

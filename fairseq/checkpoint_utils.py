@@ -7,15 +7,18 @@ import ast
 import collections
 import contextlib
 import logging
-import numpy as np
 import os
 import re
 import time
 import traceback
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
+import numpy as np
 import torch
+from omegaconf import DictConfig, OmegaConf, open_dict
+
 from fairseq.data import data_utils
 from fairseq.dataclass.configs import CheckpointConfig
 from fairseq.dataclass.utils import (
@@ -25,8 +28,6 @@ from fairseq.dataclass.utils import (
 from fairseq.distributed.fully_sharded_data_parallel import FSDP, has_FSDP
 from fairseq.file_io import PathManager
 from fairseq.models import FairseqDecoder, FairseqEncoder
-from omegaconf import DictConfig, open_dict, OmegaConf
-
 
 logger = logging.getLogger(__name__)
 
@@ -483,6 +484,34 @@ def load_model_ensemble_and_task(
     return ensemble, cfg, task
 
 
+def load_model_ensemble_and_task_from_hf_hub(
+    model_id,
+    cache_dir: Optional[str] = None,
+    arg_overrides: Optional[Dict[str, Any]] = None,
+    **kwargs: Any,
+):
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        raise ImportError(
+            "You need to install huggingface_hub to use `load_from_hf_hub`. "
+            "See https://pypi.org/project/huggingface-hub/ for installation."
+        )
+
+    library_name = "fairseq"
+    cache_dir = cache_dir or (Path.home() / ".cache" / library_name).as_posix()
+    cache_dir = snapshot_download(
+        model_id, cache_dir=cache_dir, library_name=library_name, **kwargs
+    )
+
+    _arg_overrides = arg_overrides or {}
+    _arg_overrides["data"] = cache_dir
+    return load_model_ensemble_and_task(
+        [p.as_posix() for p in Path(cache_dir).glob("*.pt")],
+        arg_overrides=_arg_overrides,
+    )
+
+
 def checkpoint_paths(path, pattern=r"checkpoint(\d+)\.pt", keep_match=False):
     """Retrieves all checkpoints found in `path` directory.
 
@@ -765,7 +794,9 @@ def prune_state_dict(state_dict, model_cfg: Optional[DictConfig]):
 
 
 def load_pretrained_component_from_model(
-    component: Union[FairseqEncoder, FairseqDecoder], checkpoint: str
+    component: Union[FairseqEncoder, FairseqDecoder],
+    checkpoint: str,
+    strict: bool = True,
 ):
     """
     Load a pretrained FairseqEncoder or FairseqDecoder from checkpoint into the
@@ -791,7 +822,7 @@ def load_pretrained_component_from_model(
             # encoder.input_layers.0.0.weight --> input_layers.0.0.weight
             component_subkey = key[len(component_type) + 1 :]
             component_state_dict[component_subkey] = state["model"][key]
-    component.load_state_dict(component_state_dict, strict=True)
+    component.load_state_dict(component_state_dict, strict=strict)
     return component
 
 
