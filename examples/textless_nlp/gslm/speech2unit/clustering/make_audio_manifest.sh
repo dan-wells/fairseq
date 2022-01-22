@@ -6,7 +6,7 @@ AUDIO_ROOT=$1
 MANIFEST=$2
 
 if [ $# -ne 2 ]; then
-  echo "Usage: $(basename $0) audio_root manifest"
+  echo "Usage: $(basename $0) audio_root/ manifest"
   echo "Write audio <manifest> including files under <audio_root>."
   exit 1
 fi
