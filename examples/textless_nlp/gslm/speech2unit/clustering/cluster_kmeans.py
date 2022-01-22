@@ -167,6 +167,7 @@ def main(args, logger):
             flatten=True,
             per_utt=args.per_utt,
             manifest_path=args.manifest_path,
+            sample_pct=args.sample_pct
         )
     else:
         # Feature extraction

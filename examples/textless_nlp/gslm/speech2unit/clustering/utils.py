@@ -5,6 +5,7 @@
 
 import glob
 import os
+import random
 from typing import List, Tuple
 
 import numpy as np
@@ -28,15 +29,20 @@ def get_audio_files(manifest_path: str) -> Tuple[str, List[str], List[int]]:
     return root_dir, fnames, sizes
 
 
-def load_features(in_features_path, flatten=False, per_utt=False, manifest_path=None):
+def load_features(in_features_path, flatten=False, per_utt=False, manifest_path=None,
+                  sample_pct=1.0):
     if per_utt:
         # match order of data loaded from flat array using same manifest
         if manifest_path is not None:
-            wav_files = read_manifest(manifest_path)
+            file_path_list = read_manifest(manifest_path)
+            if sample_pct < 1.0:
+                file_path_list = random.sample(
+                    file_path_list, int(sample_pct * len(file_path_list))
+                )
             features_files = []
-            for wav in wav_files:
-                wav = os.path.basename(wav)
-                features_file = os.path.splitext(wav)[0] + ".npy"
+            for f in file_path_list:
+                f = os.path.basename(f)
+                features_file = os.path.splitext(f)[0] + ".npy"
                 features_file = os.path.join(in_features_path, features_file)
                 features_files.append(features_file)
         else:
@@ -45,7 +51,7 @@ def load_features(in_features_path, flatten=False, per_utt=False, manifest_path=
         for features_file in features_files:
             features = np.load(features_file)
             features_batch.append(features)
-        features_batch = np.asarray(features_batch)
+        features_batch = np.asarray(features_batch, dtype=object)
         if flatten:
             # 1-d array of individual frames
             features_batch = np.concatenate(features_batch)
@@ -56,11 +62,11 @@ def load_features(in_features_path, flatten=False, per_utt=False, manifest_path=
 
 def load_features_batched(in_features_path, batch_size, manifest_path=None):
     if manifest_path is not None:
-        wav_files = read_manifest(manifest_path)
+        file_path_list = read_manifest(manifest_path)
         features_files = []
-        for wav in wav_files:
-            wav = os.path.basename(wav)
-            features_file = os.path.splitext(wav)[0] + ".npy"
+        for f in file_path_list:
+            f = os.path.basename(f)
+            features_file = os.path.splitext(f)[0] + ".npy"
             features_file = os.path.join(in_features_path, features_file)
             features_files.append(features_file)
     else:
