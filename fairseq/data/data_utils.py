@@ -400,6 +400,8 @@ def compute_mask_indices(
     min_masks: int = 0,
     no_overlap: bool = False,
     min_space: int = 0,
+    require_same_masks: bool = True,
+    mask_dropout: float = 0.0,
 ) -> np.ndarray:
     """
     Computes random mask spans for a given shape
@@ -419,6 +421,8 @@ def compute_mask_indices(
         min_masks: minimum number of masked spans
         no_overlap: if false, will switch to an alternative recursive algorithm that prevents spans from overlapping
         min_space: only used if no_overlap is True, this is how many elements to keep unmasked between spans
+        require_same_masks: if true, will randomly drop out masks until same amount of masks remains in each sample
+        mask_dropout: randomly dropout this percentage of masks in each example
     """
 
     bsz, all_sz = shape
@@ -510,8 +514,14 @@ def compute_mask_indices(
 
     min_len = min([len(m) for m in mask_idcs])
     for i, mask_idc in enumerate(mask_idcs):
-        if len(mask_idc) > min_len:
+        if len(mask_idc) > min_len and require_same_masks:
             mask_idc = np.random.choice(mask_idc, min_len, replace=False)
+        if mask_dropout > 0:
+            num_holes = np.rint(len(mask_idc) * mask_dropout).astype(int)
+            mask_idc = np.random.choice(
+                mask_idc, len(mask_idc) - num_holes, replace=False
+            )
+
         mask[i, mask_idc] = True
 
     return mask
