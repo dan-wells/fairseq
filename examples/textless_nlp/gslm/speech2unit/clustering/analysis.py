@@ -58,6 +58,8 @@ class QuantizedUtterances():
         with open(filename) as inf:
             for line in inf:
                 utt_id, unit_seq = line.strip().split("|")
+                if utt_id.endswith(".wav"):
+                    utt_id = os.path.splitext(utt_id)[0]
                 unit_seq = [int(i) for i in unit_seq.split()]
                 quantized_utts[utt_id] = self.run_length_encode(unit_seq)
         return quantized_utts
