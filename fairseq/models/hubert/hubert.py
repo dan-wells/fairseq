@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 EXTRACTOR_MODE_CHOICES = ChoiceEnum(["default", "layer_norm"])
 MASKING_DISTRIBUTION_CHOICES = ChoiceEnum(["static", "uniform", "normal", "poisson"])
+LAYER_TYPE_CHOICES = ChoiceEnum(["transformer", "conformer"])
 
 
 @dataclass
@@ -59,6 +60,9 @@ class HubertConfig(FairseqDataclass):
     )
     activation_fn: ChoiceEnum(utils.get_available_activation_fns()) = field(
         default="gelu", metadata={"help": "activation function to use"}
+    )
+    layer_type: LAYER_TYPE_CHOICES = field(
+        default="transformer", metadata={"help": "layer type in encoder"}
     )
 
     # dropouts
@@ -209,6 +213,11 @@ class HubertConfig(FairseqDataclass):
         metadata={"help": "recompute activations and save memory for extra compute"},
     )
 
+    required_seq_len_multiple: int = field(
+        default=1,
+        metadata={"help": "pad the input to encoder such that the sequence length is divisible by multiple" },
+    )
+
 
 @register_model("hubert", dataclass=HubertConfig)
 class HubertModel(BaseFairseqModel):
@@ -268,6 +277,8 @@ class HubertModel(BaseFairseqModel):
         )
 
         self.encoder = TransformerEncoder(cfg)
+        if cfg.layer_type == "conformer":
+            raise NotImplementedError("Conformer encoder not supported for HuBERT")
         self.layer_norm = LayerNorm(self.embed)
 
         self.target_glu = None
