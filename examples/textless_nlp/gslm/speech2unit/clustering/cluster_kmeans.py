@@ -145,7 +145,7 @@ def get_kmeans_model(
         reassignment_ratio=reassignment_ratio,
         random_state=random_state,
         verbose=1,
-        compute_labels=True,
+        compute_labels=False,
         init_size=None,
     )
 
