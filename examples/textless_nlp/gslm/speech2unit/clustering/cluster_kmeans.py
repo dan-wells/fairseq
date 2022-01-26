@@ -104,7 +104,7 @@ def get_parser():
     parser.add_argument("--tol", default=0.0, type=float)
     parser.add_argument("--max_no_improvement", default=100, type=int)
     parser.add_argument("--n_init", default=20, type=int)
-    parser.add_argument("--reassignment_ratio", default=0.5, type=float)
+    parser.add_argument("--reassignment_ratio", default=0.05, type=float)
     parser.add_argument(
         "--out_kmeans_model_path",
         type=str,
