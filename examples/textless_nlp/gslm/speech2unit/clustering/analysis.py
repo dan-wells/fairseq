@@ -5,6 +5,7 @@ import random
 from collections import Counter, defaultdict
 from itertools import zip_longest
 
+import bokeh
 import joblib
 import matplotlib
 import matplotlib.pyplot as plt
@@ -396,7 +397,8 @@ class QuantizedUtterances():
         Returns:
           tokens_per_label: Dictionary mapping labels (unit IDs or phones) to
             conditional probability distribution of tokens (vice versa) aligned
-            to each label, stored as a list of tuples like (token, prob).
+            to each label, stored as a list of tuples like (token, prob) sorted
+            most to least probable.
         """
         tokens_per_label = defaultdict(lambda: defaultdict(int))
         for utt in self.phone_alignments:
@@ -637,4 +639,143 @@ class QuantizedUtterances():
             print("Saving figure...")
             plt.savefig(output)
         plt.close()
+
+
+    def plot_embeddings_bokeh(self, n_components=2, n_neighbors=15, min_dist=0.1, metric='euclidean',
+                        utt_pct=0.05, frame_pct=0.05, plot_pct=0.1, seed=1337,
+                        norm_alpha=False, output='bokeh.html'):
+        """Plot UMAP embeddings of HuBERT centroids and frames with phone labels.
+
+        Fits and applies a UMAP transform over a random sample of frames from
+        loaded utterances. Each frame is plotted with its corresponding phone
+        label, colored by quantized cluster ID with opacity determined by the
+        conditional probability p(phone|cluster). Embedded cluster centroids
+        are also shown, with matching colors.
+
+        Args:
+          n_components: Number of dimensions for UMAP embedding.
+          n_neighbors: Number of local points considered in UMAP embedding.
+          min_dist: Minimum distance between points in UMAP embedding.
+          metric: Distance metric to use for UMAP embedding.
+          utt_pct: Proportion of utterances to sample and fit UMAP embedding.
+          frame_pct: Proportion of frames from each utterance to sample and
+            fit UMAP embedding.
+          plot_pct: Proportion of embedded frames to show in plot.
+          seed: Random seed for utterance/frame sampling and UMAP random state.
+          norm_alpha: Normalize alpha values to [0,1] per cluster (possibly useful
+            for very low purity clusters, e.g. with triphone labels).
+          output: Filename to save plot, or open interactive viewer if None.
+        """
+        trigram = True
+        if trigram:
+            triphone_alignments = self.textgrids_to_durs("phones", trigram=True)
+
+        np.random.seed(seed)
+        random.seed(seed)
+        utt_sample = random.sample(self.phone_alignments.keys(),
+                                   int(utt_pct * len(self.phone_alignments)))
+        frame_samples = []
+        phone_samples = []
+        triphone_samples = []
+        unit_samples = []
+        feat_template = os.path.join(self.feats_dir, "{}.npy")
+        for utt in tqdm(utt_sample, "Sampling audio frames"):
+            feats = np.load(feat_template.format(utt))
+            # random subset of frames per utterance
+            sample_idx = np.random.randint(feats.shape[0],
+                                           size=int(frame_pct * feats.shape[0]))
+            frame_samples.extend(feats[sample_idx, :])
+            phone_samples.extend(
+                np.asarray(self.run_length_decode(self.phone_alignments[utt]))[sample_idx])
+            unit_samples.extend(
+                np.asarray(self.run_length_decode(self.quantized_utts[utt]))[sample_idx])
+            if trigram:
+                triphone_samples.extend(
+                    np.asarray(self.run_length_decode(triphone_alignments[utt]))[sample_idx])
+
+        # fit UMAP transform and apply to individual frames and centroids
+        print("Fitting UMAP transform over {} frames from {} utterances...".format(
+            len(frame_samples), len(utt_sample)))
+        centroids = self.kmeans.cluster_centers_
+        #frame_samples.extend(centroids)  # probably don't do this, because they are not actual data points!
+        reducer = umap.UMAP(n_components=n_components, n_neighbors=n_neighbors,
+                            min_dist=min_dist, metric=metric, random_state=seed,
+                            transform_seed=seed, verbose=self.verbose)
+        embedding = reducer.fit_transform(frame_samples)  # n_clusters x umap_dims
+        frame_embeddings = reducer.embedding_
+        centroid_embeddings = reducer.transform(centroids)
+
+        # phone label opacity determined by conditional prob per cluster ID
+        phone_purity = self.label_purity('unit')
+        purity_alpha = {}
+        for unit, phones in phone_purity.items():
+            if norm_alpha:
+                _, probs = list(zip(*phones))
+                max_prob = max(probs)
+                min_prob = min(probs)
+            purity_alpha[unit] = {}
+            for phone, alpha in phones:
+                if norm_alpha:
+                    alpha = (alpha - min_prob) / (max_prob - min_prob)
+                purity_alpha[unit][phone] = alpha
+
+        cmap = matplotlib.cm.get_cmap('rainbow')#, self.kmeans.n_clusters)
+        # plot frame embeddings as phone labels colored by cluster ID
+        plot_idx = np.random.randint(len(frame_embeddings),
+                                     size=int(plot_pct * len(frame_embeddings)))
+        frame_embeddings = np.asarray(frame_embeddings)[plot_idx]
+        phone_samples = np.asarray(phone_samples)[plot_idx]
+        unit_samples = np.asarray(unit_samples)[plot_idx]
+        if trigram:
+            triphone_samples = np.asarray(triphone_samples)[plot_idx]
+
+        tooltips = [
+            ("phone", "@phone"),
+            ("unit", "@unit"),
+            ("centroid", "@centroid_pos"),
+        ]
+        if trigram:
+            tooltips.append(("triphone", "@triphone"))
+
+        unit_data = {
+            'phone': phone_samples,
+            'unit': unit_samples,
+            'colors': [matplotlib.colors.rgb2hex(cmap(unit_samples[i] / self.kmeans.n_clusters)) for i in range(len(phone_samples))],
+            'alphas': [purity_alpha[unit_samples[i]][phone_samples[i]] for i in range(len(phone_samples))],
+            'x': frame_embeddings[:, 0], 'y': frame_embeddings[:, 1],
+            'centroid_pos': ["({:.2f}, {:.2f})".format(*centroid_embeddings[unit_samples[i]]) for i in range(len(phone_samples))],
+        }
+        if trigram:
+            unit_data['triphone'] = triphone_samples
+        unit_source = bokeh.models.ColumnDataSource(data=unit_data)
+        unit_labels = bokeh.models.LabelSet(
+                     source=unit_source, x='x', y='y', text='phone',
+                     text_color='colors', text_alpha='alphas',
+                     x_offset=0, y_offset=0, text_align='center', text_baseline='middle')
+
+        centroid_data = {
+            'unit': [str(i) for i in range(self.kmeans.n_clusters)],
+            'phone': [', '.join('{}: {:.4f}'.format(*phone_purity[i][j]) for j in range(4)) for i in range(self.kmeans.n_clusters)],
+            'colors': [matplotlib.colors.rgb2hex(cmap(i / self.kmeans.n_clusters)) for i in range(self.kmeans.n_clusters)],
+            'x': centroid_embeddings[:, 0], 'y': centroid_embeddings[:, 1],
+            'centroid_pos': ["({:.2f}, {:.2f})".format(*i) for i in centroid_embeddings],
+        }
+        centroid_source = bokeh.models.ColumnDataSource(data=centroid_data)
+        centroid_labels = bokeh.models.LabelSet(
+            source=centroid_source, x='x', y='y', text='unit', text_color='black',
+            x_offset=3, y_offset=3, level='overlay')
+
+        p = bokeh.plotting.figure(height=800, width=800,
+                tools=['pan', 'zoom_in', 'zoom_out', 'wheel_zoom', 'box_zoom', 'hover', 'save', 'undo', 'redo', 'reset'],
+                tooltips=tooltips, output_backend='canvas') # or svg
+        p.scatter(source=unit_source, x='x', y='y',
+                  size=8, line_alpha=0, fill_alpha=0)
+        p.add_layout(unit_labels)
+        p.scatter(source=centroid_source, x='x', y='y',
+                  size=8, line_color='black', fill_color='colors', level='overlay')
+        p.add_layout(centroid_labels)
+
+        bokeh.plotting.output_file(output)
+        bokeh.io.save(p)
+        print("Saved interactive plot to {}".format(output))
 
