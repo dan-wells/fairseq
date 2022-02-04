@@ -82,7 +82,7 @@ def get_features(
     gc.collect()
     torch.cuda.empty_cache()
 
-    features_list = np.asarray(features_list)
+    features_list = np.asarray(features_list, dtype=object)
     if flatten:
         return np.concatenate(features_list)
 
