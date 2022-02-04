@@ -111,10 +111,13 @@ def get_and_dump_features(
     # Save features
     out_dir_path = os.path.dirname(out_features_path)
     os.makedirs(out_dir_path, exist_ok=True)
-    shutil.copyfile(
-        manifest_path,
-        os.path.join(out_dir_path, os.path.basename(manifest_path)),
-    )
+    try:
+        shutil.copyfile(
+            manifest_path,
+            os.path.join(out_dir_path, os.path.basename(manifest_path)),
+        )
+    except shutil.SameFileError:
+        pass
     np.save(out_features_path, features_batch)
 
     return features_batch
