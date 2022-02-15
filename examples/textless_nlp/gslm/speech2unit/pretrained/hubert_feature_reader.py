@@ -23,6 +23,8 @@ class HubertFeatureReader:
         ) = fairseq.checkpoint_utils.load_model_ensemble_and_task(
             [checkpoint_path]
         )
+        # hack 50 Hz -> 100 Hz downsampling
+        #model[0].feature_extractor.conv_layers[-1][0].stride = 1
         self.model = model[0].eval().cuda()
         self.task = task
         self.layer = layer
