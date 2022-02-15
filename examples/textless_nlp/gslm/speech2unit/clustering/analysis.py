@@ -755,11 +755,23 @@ class QuantizedUtterances():
 
         centroid_data = {
             'unit': [str(i) for i in range(self.kmeans.n_clusters)],
-            'phone': [', '.join('{}: {:.4f}'.format(*phone_purity[i][j]) for j in range(4)) for i in range(self.kmeans.n_clusters)],
             'colors': [matplotlib.colors.rgb2hex(cmap(i / self.kmeans.n_clusters)) for i in range(self.kmeans.n_clusters)],
             'x': centroid_embeddings[:, 0], 'y': centroid_embeddings[:, 1],
             'centroid_pos': ["({:.2f}, {:.2f})".format(*i) for i in centroid_embeddings],
         }
+        centroid_phones = []
+        for i in range(self.kmeans.n_clusters):
+            centroid_phone_purities = []
+            # list up to top 4 most frequent phones per cluster
+            for j in range(4):
+                try:
+                    centroid_phone_purities.append('{}: {:.4f}'.format(*phone_purity[i][j]))
+                except (KeyError, IndexError):
+                    # KeyError: cluster unseen in data sample
+                    # IndexError: cluster has < 4 associated phones
+                    break
+            centroid_phones.append(', '.join(centroid_phone_purities))
+        centroid_data['phone'] = centroid_phones
         centroid_source = bokeh.models.ColumnDataSource(data=centroid_data)
         centroid_labels = bokeh.models.LabelSet(
             source=centroid_source, x='x', y='y', text='unit', text_color='black',
