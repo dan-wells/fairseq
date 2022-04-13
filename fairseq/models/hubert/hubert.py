@@ -18,6 +18,9 @@ from fairseq.data.dictionary import Dictionary
 from fairseq.dataclass import ChoiceEnum, FairseqDataclass
 from fairseq.models import BaseFairseqModel, register_model
 from fairseq.models.wav2vec.wav2vec2 import (
+    EXTRACTOR_MODE_CHOICES,
+    MASKING_DISTRIBUTION_CHOICES,
+    LAYER_TYPE_CHOICES,
     ConvFeatureExtractionModel,
     TransformerEncoder,
 )
@@ -29,14 +32,10 @@ from fairseq.tasks.hubert_pretraining import (
 
 logger = logging.getLogger(__name__)
 
-EXTRACTOR_MODE_CHOICES = ChoiceEnum(["default", "layer_norm"])
-MASKING_DISTRIBUTION_CHOICES = ChoiceEnum(["static", "uniform", "normal", "poisson"])
-LAYER_TYPE_CHOICES = ChoiceEnum(["transformer", "conformer"])
-
 
 @dataclass
 class HubertConfig(FairseqDataclass):
-    label_rate: int = II("task.label_rate")
+    label_rate: float = II("task.label_rate")
 
     extractor_mode: EXTRACTOR_MODE_CHOICES = field(
         default="default",
@@ -213,10 +212,30 @@ class HubertConfig(FairseqDataclass):
         metadata={"help": "recompute activations and save memory for extra compute"},
     )
 
+    # FP16 optimization
     required_seq_len_multiple: int = field(
-        default=1,
-        metadata={"help": "pad the input to encoder such that the sequence length is divisible by multiple" },
+        default=2,
+        metadata={
+            "help": "pad the input to encoder such that the sequence length is divisible by multiple"
+        },
     )
+
+    # Conformer
+    depthwise_conv_kernel_size: int = field(
+        default=31,
+        metadata={
+            "help": "depthwise-conv-kernel-size for convolution in conformer layer"
+        },
+    )
+    attn_type: str = field(
+        default="",
+        metadata={"help": "if espnet use ESPNET MHA"},
+    )
+    pos_enc_type: str = field(
+        default="abs",
+        metadata={"help": "Positional encoding type to use in conformer"},
+    )
+    fp16: bool = field(default=False, metadata={"help": "If fp16 is being used"})
 
 
 @register_model("hubert", dataclass=HubertConfig)
