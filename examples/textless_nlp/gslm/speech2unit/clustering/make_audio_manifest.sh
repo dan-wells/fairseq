@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 #set -euo pipefail
 
@@ -10,6 +10,8 @@ if [ $# -ne 2 ]; then
   echo "Write audio <manifest> including files under <audio_root>."
   exit 1
 fi
+
+mkdir -p ${MANIFEST%/*}
 
 printf "${AUDIO_ROOT}\n" > "$MANIFEST"
 
