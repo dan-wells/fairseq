@@ -578,8 +578,8 @@ class QuantizedUtterances():
         for utt in tqdm(utt_sample, "Sampling audio frames"):
             feats = np.load(feat_template.format(utt))
             # random subset of frames per utterance
-            sample_idx = np.random.randint(feats.shape[0],
-                                           size=int(frame_pct * feats.shape[0]))
+            sample_idx = np.random.choice(feats.shape[0], replace=False,
+                                          size=int(frame_pct * feats.shape[0]))
             frame_samples.extend(feats[sample_idx, :])
             phone_samples.extend(
                 np.asarray(self.run_length_decode(self.phone_alignments[utt]))[sample_idx])
@@ -615,8 +615,8 @@ class QuantizedUtterances():
         fig, ax = plt.subplots()
         cmap = matplotlib.cm.get_cmap('rainbow')#, self.kmeans.n_clusters)
         # plot frame embeddings as phone labels colored by cluster ID
-        plot_idx = np.random.randint(len(frame_embeddings),
-                                     size=int(plot_pct * len(frame_embeddings)))
+        plot_idx = np.random.choice(len(frame_embeddings), replace=False,
+                                    size=int(plot_pct * len(frame_embeddings)))
         frame_embeddings = np.asarray(frame_embeddings)[plot_idx]
         phone_samples = np.asarray(phone_samples)[plot_idx]
         unit_samples = np.asarray(unit_samples)[plot_idx]
@@ -682,8 +682,8 @@ class QuantizedUtterances():
         for utt in tqdm(utt_sample, "Sampling audio frames"):
             feats = np.load(feat_template.format(utt))
             # random subset of frames per utterance
-            sample_idx = np.random.randint(feats.shape[0],
-                                           size=int(frame_pct * feats.shape[0]))
+            sample_idx = np.random.choice(feats.shape[0] - 1, replace=False,
+                                          size=int(frame_pct * feats.shape[0]))
             frame_samples.extend(feats[sample_idx, :])
             phone_samples.extend(
                 np.asarray(self.run_length_decode(self.phone_alignments[utt]))[sample_idx])
@@ -721,8 +721,8 @@ class QuantizedUtterances():
 
         cmap = matplotlib.cm.get_cmap('rainbow')#, self.kmeans.n_clusters)
         # plot frame embeddings as phone labels colored by cluster ID
-        plot_idx = np.random.randint(len(frame_embeddings),
-                                     size=int(plot_pct * len(frame_embeddings)))
+        plot_idx = np.random.choice(len(frame_embeddings), replace=False,
+                                    size=int(plot_pct * len(frame_embeddings)))
         frame_embeddings = np.asarray(frame_embeddings)[plot_idx]
         phone_samples = np.asarray(phone_samples)[plot_idx]
         unit_samples = np.asarray(unit_samples)[plot_idx]
