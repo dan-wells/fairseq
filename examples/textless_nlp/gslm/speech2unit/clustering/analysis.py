@@ -642,7 +642,7 @@ class QuantizedUtterances():
 
 
     def plot_embeddings_bokeh(self, n_components=2, n_neighbors=15, min_dist=0.1, metric='euclidean',
-                        utt_pct=0.05, frame_pct=0.05, plot_pct=0.1, seed=1337,
+                        utt_pct=0.05, frame_pct=0.05, plot_pct=0.1, seed=1337, umap_cache='',
                         norm_alpha=False, title='Bokeh plot', output='bokeh.html'):
         """Plot UMAP embeddings of HuBERT centroids and frames with phone labels.
 
@@ -698,9 +698,14 @@ class QuantizedUtterances():
             len(frame_samples), len(utt_sample)))
         centroids = self.kmeans.cluster_centers_
         #frame_samples.extend(centroids)  # probably don't do this, because they are not actual data points!
-        reducer = umap.UMAP(n_components=n_components, n_neighbors=n_neighbors,
-                            min_dist=min_dist, metric=metric, random_state=seed,
-                            transform_seed=seed, verbose=self.verbose)
+        if os.path.isfile(umap_cache):
+            reducer = joblib.load(umap_cache)
+        else:
+            reducer = umap.UMAP(n_components=n_components, n_neighbors=n_neighbors,
+                                min_dist=min_dist, metric=metric, random_state=seed,
+                                transform_seed=seed, verbose=self.verbose)
+            if umap_cache:
+                joblib.dump(reducer, umap_cache)
         embedding = reducer.fit_transform(frame_samples)  # n_clusters x umap_dims
         frame_embeddings = reducer.embedding_
         centroid_embeddings = reducer.transform(centroids)
