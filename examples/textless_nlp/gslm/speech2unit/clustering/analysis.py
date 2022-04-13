@@ -373,7 +373,7 @@ class QuantizedUtterances():
 
         print("\nPer token:")
         print(hrule)
-        row_template = "{:>4}    {:>6.1f}"
+        row_template = "{:>4}    {:>6.2f}"
         token_durations = sorted(token_durations.items(),
                                  key=lambda x: x[1], reverse=True)
         for token, dur in token_durations:
