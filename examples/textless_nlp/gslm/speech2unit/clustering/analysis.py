@@ -643,7 +643,7 @@ class QuantizedUtterances():
 
     def plot_embeddings_bokeh(self, n_components=2, n_neighbors=15, min_dist=0.1, metric='euclidean',
                         utt_pct=0.05, frame_pct=0.05, plot_pct=0.1, seed=1337,
-                        norm_alpha=False, output='bokeh.html'):
+                        norm_alpha=False, title='Bokeh plot', output='bokeh.html'):
         """Plot UMAP embeddings of HuBERT centroids and frames with phone labels.
 
         Fits and applies a UMAP transform over a random sample of frames from
@@ -777,7 +777,7 @@ class QuantizedUtterances():
             source=centroid_source, x='x', y='y', text='unit', text_color='black',
             x_offset=3, y_offset=3, level='overlay')
 
-        p = bokeh.plotting.figure(height=800, width=800,
+        p = bokeh.plotting.figure(title=title, height=800, width=800,
                 tools=['pan', 'zoom_in', 'zoom_out', 'wheel_zoom', 'box_zoom', 'hover', 'save', 'undo', 'redo', 'reset'],
                 tooltips=tooltips, output_backend='canvas') # or svg
         p.scatter(source=unit_source, x='x', y='y',
@@ -787,7 +787,7 @@ class QuantizedUtterances():
                   size=8, line_color='black', fill_color='colors', level='overlay')
         p.add_layout(centroid_labels)
 
-        bokeh.plotting.output_file(output)
+        bokeh.plotting.output_file(output, title=title)
         bokeh.io.save(p)
         print("Saved interactive plot to {}".format(output))
 
