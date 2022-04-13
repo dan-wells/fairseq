@@ -13,7 +13,6 @@ import numpy as np
 import tgt
 import umap
 import umap.plot
-from scipy.spatial import Voronoi, voronoi_plot_2d
 from tabulate import tabulate
 from tqdm import tqdm
 
@@ -240,7 +239,7 @@ class QuantizedUtterances():
                   "QuantizedUtterances.textgrids_to_durs('words')")
             return None
         units = self.run_length_decode(self.quantized_utts[utt])
-        
+
         prons = []
         w_pron = [units[0]]
         prev_unit = units[0]
@@ -393,7 +392,7 @@ class QuantizedUtterances():
         Args:
           label_type: Either 'unit' (default) or 'phone'. Given one, calculate
             conditional probability distribution over the other.
-        
+
         Returns:
           tokens_per_label: Dictionary mapping labels (unit IDs or phones) to
             conditional probability distribution of tokens (vice versa) aligned
@@ -505,7 +504,7 @@ class QuantizedUtterances():
           as_table: Boolean, print stats in a single-line table format (default
             True). If False, print slightly more verbose multi-line report.
         """
-        (p_xy, cluster_purity, phone_purity, mi_norm_by_phone, 
+        (p_xy, cluster_purity, phone_purity, mi_norm_by_phone,
             unit_dur, phone_dur) = self.purity_stats()
         if as_table:
             outputs = {
