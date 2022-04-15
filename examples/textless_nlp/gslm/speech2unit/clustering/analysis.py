@@ -3,7 +3,7 @@
 import os
 import random
 from collections import Counter, defaultdict
-from itertools import zip_longest
+from itertools import groupby, zip_longest
 
 import bokeh
 import joblib
@@ -15,6 +15,9 @@ import umap
 import umap.plot
 from tabulate import tabulate
 from tqdm import tqdm
+from tslearn.barycenters import softdtw_barycenter
+from tslearn.preprocessing import TimeSeriesScalerMeanVariance
+from tslearn.utils import to_time_series_dataset
 
 from examples.hubert.measure_teacher_quality import (
     comp_avg_seg_dur, comp_joint_prob, comp_norm_mutual_info, comp_purity
@@ -794,4 +797,46 @@ class QuantizedUtterances():
         bokeh.plotting.output_file(output, title=title)
         bokeh.io.save(p)
         print("Saved interactive plot to {}".format(output))
+
+    def get_word_barycenters(self, utt_norm=False, n_instances=0, filter_words=None,
+                             outfile=''):
+        """Compute barycenters of continuous features aligned to words
+
+        Args:
+          utt_norm: Apply per-utterance mean and variance normalization to
+            continuous features before computing barycenters.
+          n_instances: Compute barycenters from n instances of each word, or
+            all instances if 0.
+          filter_words: Compute barycenters only for words in this list.
+        """
+        if not hasattr(self, 'word_alignments'):
+            self.word_alignments = self.textgrids_to_durs('words')
+        if filter_words is not None:
+            filter_words = set(filter_words)
+        word_feats = defaultdict(list)
+        for utt, ali in tqdm(self.word_alignments.items(), "Loading feats"):
+            start_idx = 0
+            words_in_utt = set(w for w, _ in ali)
+            if filter_words is None or words_in_utt.intersection(filter_words):
+                feats = np.load(os.path.join(self.feats_dir, utt + '.npy'))
+                for word, dur in ali:
+                    if filter_words is None or word in filter_words:
+                        # avoid issues with truncated feats on last word in utt
+                        end_idx = min(start_idx + dur, len(feats))
+                        word_feats[word].append(feats[start_idx:end_idx])
+                    start_idx += dur
+        bary_prons = {}
+        for word, feats in tqdm(word_feats.items(), "Finding barycenters"):
+            if n_instances:
+                feats = random.sample(feats, min(len(feats), n_instances))
+            ts_feats = to_time_series_dataset(feats)
+            barycenter = softdtw_barycenter(ts_feats, gamma=1.0, max_iter=50)
+            bary_pron = self.kmeans.predict(barycenter.astype('float32'))
+            bary_pron = [unit for unit, _ in groupby(bary_pron)]
+            bary_prons[word] = bary_pron
+        if outfile:
+            with open(outfile, 'w') as outf:
+                for word, pron in sorted(bary_prons.items(), key=lambda x: x[0]):
+                    outf.write('{}\t{}\n'.format(word, pron))
+        return bary_prons
 
