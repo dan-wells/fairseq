@@ -3,7 +3,7 @@
 import os
 import random
 from collections import Counter, defaultdict
-from itertools import zip_longest
+from itertools import groupby, zip_longest
 
 import bokeh
 import joblib
@@ -15,6 +15,9 @@ import umap
 import umap.plot
 from tabulate import tabulate
 from tqdm import tqdm
+from tslearn.barycenters import softdtw_barycenter
+from tslearn.preprocessing import TimeSeriesScalerMeanVariance
+from tslearn.utils import to_time_series_dataset
 
 from examples.hubert.measure_teacher_quality import (
     comp_avg_seg_dur, comp_joint_prob, comp_norm_mutual_info, comp_purity
@@ -42,6 +45,7 @@ class QuantizedUtterances():
         if kmeans_model is not None:
             with open(kmeans_model, "rb") as kmeans_model_file:
                 self.kmeans = joblib.load(kmeans_model_file)
+                self.kmeans.verbose = 0
                 #self.kmeans.cluster_centers_.shape (n_clusters, dim)
 
     def load_quantized_utts(self, filename):
@@ -794,4 +798,62 @@ class QuantizedUtterances():
         bokeh.plotting.output_file(output, title=title)
         bokeh.io.save(p)
         print("Saved interactive plot to {}".format(output))
+
+    # TODO: clean up safety checks
+    def get_word_barycenters(self, utt_norm=False, n_instances=0, filter_words=None,
+                             outfile='', seed=1337):
+        """Compute barycenters of continuous features aligned to words
+
+        Args:
+          utt_norm: Apply per-utterance mean and variance normalization to
+            continuous features before computing barycenters.
+          n_instances: Compute barycenters from n instances of each word, or
+            all instances if 0.
+          filter_words: Compute barycenters only for words in this list.
+        """
+        random.seed(seed)
+        if self.word_alignments is None:
+            self.word_alignments = self.textgrids_to_durs('words')
+        if filter_words is not None:
+            filter_words = set(filter_words)
+        word_feats = defaultdict(list)
+        for utt, ali in tqdm(self.word_alignments.items(), "Loading feats"):
+            start_idx = 0
+            words_in_utt = set(w for w, _ in ali)
+            if filter_words is None or words_in_utt.intersection(filter_words):
+                # TODO: consider only loading alignment indices for each
+                # utterance here, then load feats after selecting a random
+                # subset below to save on memory usage (but possibly loading
+                # feats from disk for the same utterance multiple times)
+                feats = np.load(os.path.join(self.feats_dir, utt + '.npy'))
+                for word, dur in ali:
+                    #if dur < 2:
+                    #    start_idx += dur
+                    #    # dtw needs at least 2 frames
+                    #    continue
+                    if filter_words is None or word in filter_words:
+                        # avoid issues with truncated feats on last word in utt
+                        # len(feats) - 1? do we actually need this?
+                        end_idx = min(start_idx + dur, len(feats) - 1)
+                        snippet = feats[start_idx:end_idx]
+                        if len(snippet) > 1:
+                            word_feats[word].append(snippet)
+                    start_idx += dur
+        bary_prons = {}
+        with open(outfile, 'w') as outf:
+            for word in tqdm(sorted(word_feats), "Finding barycenters"):
+                outf.write(word)
+                feats = word_feats[word]
+                if n_instances:
+                    feats = random.sample(feats, min(len(feats), n_instances))
+                ts_feats = to_time_series_dataset(feats)
+                try:
+                    barycenter = softdtw_barycenter(ts_feats, gamma=1.0, max_iter=50)
+                    bary_pron = self.kmeans.predict(barycenter.astype('float32'))
+                    bary_pron = [unit for unit, _ in groupby(bary_pron)]
+                    outf.write('\t{}\n'.format(' '.join(str(i) for i in bary_pron)))
+                except:
+                    outf.write('\tBAD INPUT: {}, {}\n'.format(ts_feats.shape, [len(i) for i in feats]))
+                outf.flush()
+        return bary_prons
 
