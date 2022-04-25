@@ -799,7 +799,6 @@ class QuantizedUtterances():
         bokeh.io.save(p)
         print("Saved interactive plot to {}".format(output))
 
-    # TODO: clean up safety checks
     def get_word_barycenters(self, utt_norm=False, n_instances=0, filter_words=None,
                              outfile='', seed=1337):
         """Compute barycenters of continuous features aligned to words
@@ -816,44 +815,34 @@ class QuantizedUtterances():
             self.word_alignments = self.textgrids_to_durs('words')
         if filter_words is not None:
             filter_words = set(filter_words)
-        word_feats = defaultdict(list)
+        word_idxs = defaultdict(list)
         for utt, ali in tqdm(self.word_alignments.items(), "Loading feats"):
             start_idx = 0
             words_in_utt = set(w for w, _ in ali)
             if filter_words is None or words_in_utt.intersection(filter_words):
-                # TODO: consider only loading alignment indices for each
-                # utterance here, then load feats after selecting a random
-                # subset below to save on memory usage (but possibly loading
-                # feats from disk for the same utterance multiple times)
-                feats = np.load(os.path.join(self.feats_dir, utt + '.npy'))
                 for word, dur in ali:
-                    #if dur < 2:
-                    #    start_idx += dur
-                    #    # dtw needs at least 2 frames
-                    #    continue
                     if filter_words is None or word in filter_words:
-                        # avoid issues with truncated feats on last word in utt
-                        # len(feats) - 1? do we actually need this?
-                        end_idx = min(start_idx + dur, len(feats) - 1)
-                        snippet = feats[start_idx:end_idx]
-                        if len(snippet) > 1:
-                            word_feats[word].append(snippet)
+                        end_idx = start_idx + dur
+                        word_idx = (utt, start_idx, end_idx)
+                        if end_idx - start_idx > 1:
+                            word_idxs[word].append(word_idx)
                     start_idx += dur
         bary_prons = {}
         with open(outfile, 'w') as outf:
-            for word in tqdm(sorted(word_feats), "Finding barycenters"):
+            for word in tqdm(sorted(word_idxs), "Finding barycenters"):
                 outf.write(word)
-                feats = word_feats[word]
+                instances = word_idxs[word]
                 if n_instances:
-                    feats = random.sample(feats, min(len(feats), n_instances))
-                ts_feats = to_time_series_dataset(feats)
-                try:
-                    barycenter = softdtw_barycenter(ts_feats, gamma=1.0, max_iter=50)
-                    bary_pron = self.kmeans.predict(barycenter.astype('float32'))
-                    bary_pron = [unit for unit, _ in groupby(bary_pron)]
-                    outf.write('\t{}\n'.format(' '.join(str(i) for i in bary_pron)))
-                except:
-                    outf.write('\tBAD INPUT: {}, {}\n'.format(ts_feats.shape, [len(i) for i in feats]))
-                outf.flush()
+                    instances = random.sample(instances, min(len(instances), n_instances))
+                word_feats = []
+                for instance in instances:
+                    utt, start_idx, end_idx = instance
+                    feats = np.load(os.path.join(self.feats_dir, utt + '.npy'))
+                    word_feats.append(feats[start_idx:end_idx])
+                ts_feats = to_time_series_dataset(word_feats)
+                barycenter = softdtw_barycenter(ts_feats, gamma=1.0, max_iter=50)
+                bary_pron = self.kmeans.predict(barycenter.astype('float32'))
+                bary_pron = [unit for unit, _ in groupby(bary_pron)]
+                outf.write('\t{}\n'.format(' '.join(str(i) for i in bary_pron)))
         return bary_prons
 
